@@ -8,24 +8,20 @@ define ['sir-trevor-js'], (SirTrevor)->
 
     mixinName: "Backgroundable"
 
-    removeBackgroundImage: ()->
+    removeBackground: ()->
       @setData {file: null }
-      @$inputs.hide()
       @loadData @getData()
 
-    addBackgroundImage: ()->
-      @toggleControls true
-      @$inputs.show()
+    editBackground: ()->
+      @$inputs.toggle()
 
     initializeBackgroundable: ()->
-      console.log 'test'
       @controllable = true
       @droppable    = true
       @uploadable   = true
 
       @controls = {
-        removeImage: @removeBackgroundImage
-        addImage: @addBackgroundImage
+        editBackground: @editBackground
       }
 
       input_html = $("<div>", { 'class': 'st-block__inputs' })
@@ -33,8 +29,18 @@ define ['sir-trevor-js'], (SirTrevor)->
       @drop_options =
         html: ['<div class="st-block__dropzone">',
             '<span class="st-icon">image</span>',
-            '<p><span>Drag background image here</span>',
-            '</p></div>'].join('\n')
+            '<p><span>Drag background image here</span></p>',
+            '<p><label class="st-input-label">Background Color</label>',
+            '<input maxlength="140" name="background.color" class="st-input-string" type="text" /></p>'
+            '<p><label class="st-input-label">Background Size</label>',
+            '<input maxlength="140" name="background.size" class="st-input-string" type="text" /></p>'
+            '<p><label class="st-input-label">Background Repeat</label>',
+            '<input maxlength="140" name="background.repeat" class="st-input-string" type="text" /></p>'
+            '<p><label class="st-input-label">Background Position</label>',
+            '<input maxlength="140" name="background.position" class="st-input-string" type="text" /></p>'
+            '</div>'].join('\n')
+
+
 
       @$inner.append(input_html)
       @$inputs = input_html
@@ -43,34 +49,51 @@ define ['sir-trevor-js'], (SirTrevor)->
       @withMixin(SirTrevor.BlockMixins.Uploadable)
       @withMixin(SirTrevor.BlockMixins.Controllable)
 
+      #observe the background inputs for changes
+      for input in @$inputs.find("[name^=background]")
+        $(input).on 'change', ((ev)->
+          @save()
+          @loadData @getBlockData()
+          @ready()
+        ).bind(@)
+
       @$inputs.hide()
       @$editor.show()
-      @toggleControls false
       return
 
-    toggleControls: (background)->
-      if background
-        @$control_ui.find('a[data-icon=removeImage]').show()
-        @$control_ui.find('a[data-icon=addImage]').hide()
+    backgroundImageUrl: (backgroundImage)->
+      if backgroundImage
+        return "url('#{backgroundImage}')"
       else
-        @$control_ui.find('a[data-icon=removeImage]').hide()
-        @$control_ui.find('a[data-icon=addImage]').show()
+        return 'none'
 
-    hasBackground: ()->
-      return @blockStorage.data.file and @blockStorage.data.file.url
+    setBlockCss: (prefix, attr, val)->
+      val = @backgroundImageUrl(val) if attr is 'image'
+      @$inner.css {
+        "#{prefix}#{attr}": val
+      }
 
     loadData: (data)->
       @$editor.show()
-      if data.file and data.file.url
-        @$inner.css({'background-image': "url('#{data.file.url}')", 'background-size' : 'cover' })
-        @getTextBlock().css({color: '#fff'})
-      else
-        @$inner.css({'background-image': "none"})
-        @getTextBlock().css({color: 'inherit'})
 
-      @toggleControls(data.file and data.file.url)
+      self = @ #coffeescript sets this inside the loop, not sure how to get around it
+
+      #set the background css
+      for attr, val of data.background
+
+        do (attr, val)->
+          self.setBlockCss('background-', attr, val)
+
+          #set the input values
+          self.$inputs.find("[name='background.#{attr}']").val(val)
+
+          if val and attr is 'image' or 'color'
+            self.getTextBlock().css({color: '#fff'})
+          else
+            self.getTextBlock().css({color: 'inherit'})
+
+      #set the text
       @getTextBlock().html(SirTrevor.toHTML(data.text, @type)) if data.text
-
 
     onDrop: (transferData) ->
       file = transferData.files[0]
@@ -78,10 +101,13 @@ define ['sir-trevor-js'], (SirTrevor)->
 
       if /image/.test(file.type)
         @loading()
-        @$inputs.hide()
-        @loadData file: url: urlAPI.createObjectURL(file)
+
+        @loadData
+          background:
+            image: urlAPI.createObjectURL(file)
+
         @uploader file, ((data) ->
-          @setData data
+          @setData {background: {image: data.file.url}}
           @ready()
           return
         ), (error) ->
@@ -89,4 +115,37 @@ define ['sir-trevor-js'], (SirTrevor)->
           @ready()
           return
       return
+
+    _serializeData: ()->
+      data = {}
+
+      # Override this to allow JSON-style nested attr names
+      # uses .serializeObject() from https://github.com/macek/jquery-serialize-object
+
+      if @hasTextBlock()
+        data.text = @getTextBlockHTML()
+        if data.text.length > 0 and @options.convertToMarkdown
+          data.text = stToMarkdown(data.text, @type)
+
+      # Add any inputs to the data attr
+      if @$(':input').not('.st-paste-block').length > 0
+
+        #get the background inputs
+        data.background = @blockStorage.data.background || {}
+
+        @$(':input[name^=background]').each (index, input) ->
+          key = input.getAttribute('name').split('.')[1]
+          data.background[key] = input.value
+
+        #get the rest of the inputs
+        @$(':input').not('[name^=background]').each (index, input) ->
+          if input.getAttribute('name')
+            data[input.getAttribute('name')] = input.value
+
+
+        console.log data
+
+      data
+
+
   }
